@@ -1,15 +1,21 @@
 -- ============================================================================
--- Nursing Shift App — Phase 1 database schema
+-- Nursing Shift App — database schema (Phase 1 + V1.1 Shift Management)
 -- ============================================================================
--- Run this once in your Supabase project's SQL Editor
+-- Safe to run this whole file again any time — every statement is
+-- idempotent (create ... if not exists / drop policy if exists), so
+-- re-running it to pick up new columns or policies never touches existing
+-- data.
+--
+-- Run it in your Supabase project's SQL Editor
 -- (Dashboard → SQL Editor → New query → paste this whole file → Run).
 --
 -- What this sets up:
 --   1. `profiles`  — one row per user, auto-created on sign up.
---   2. `shifts`    — empty table, ready for the Phase 2 shift-scheduling
---                     feature. Nothing in Phase 1 writes to it; it exists
---                     now so the app's authorization model doesn't have to
---                     change later.
+--   2. `shifts`    — each row is one shift a user entered: date, shift
+--                     type, start/end time, optional notes. `shift_type`
+--                     is a plain text value (not a fixed enum), so adding
+--                     a new shift type later is just adding an entry to
+--                     SHIFT_TYPES in the frontend — no migration needed.
 --   3. Row Level Security (RLS) on both tables so that, at the DATABASE
 --      layer (not just hidden in the frontend), every user can only ever
 --      see or modify their own rows.
@@ -61,7 +67,7 @@ create trigger on_auth_user_created
   for each row execute procedure public.handle_new_user();
 
 -- ----------------------------------------------------------------------------
--- 2. shifts (Phase 2 readiness — no UI writes to this in Phase 1)
+-- 2. shifts
 -- ----------------------------------------------------------------------------
 create table if not exists public.shifts (
   id uuid primary key default gen_random_uuid(),
@@ -72,7 +78,19 @@ create table if not exists public.shifts (
   created_at timestamptz not null default now()
 );
 
+-- Added in V1.1: start/end time of the shift. Stored as plain `time`
+-- (wall-clock, Asia/Bangkok — the app never lets a user pick a
+-- timezone), separate from `shift_date`. An overnight shift (e.g.
+-- 22:00 → 08:00) is represented exactly as entered: end_time is simply
+-- "earlier" than start_time, which the app treats as "ends the next
+-- day" rather than as invalid input.
+alter table public.shifts add column if not exists start_time time not null default '08:00';
+alter table public.shifts add column if not exists end_time time not null default '16:00';
+alter table public.shifts alter column start_time drop default;
+alter table public.shifts alter column end_time drop default;
+
 create index if not exists shifts_user_id_idx on public.shifts (user_id);
+create index if not exists shifts_user_id_shift_date_idx on public.shifts (user_id, shift_date);
 
 alter table public.shifts enable row level security;
 
