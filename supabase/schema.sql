@@ -1,6 +1,9 @@
 -- ============================================================================
--- Nursing Shift App — database schema (Phase 1 + V1.1 + V1.2 Personal Planning)
+-- Nursing Shift App — database schema
+-- (Phase 1 + V1.1 Shift + V1.2 Personal Planning + V1.3 Smart Schedule +
+--  V1.4 Reminder & Notification)
 -- ============================================================================
+-- V1.3 added no schema changes (pure computation over existing tables).
 -- Safe to run this whole file again any time — every statement is
 -- idempotent (create ... if not exists / drop policy if exists), so
 -- re-running it to pick up new columns or policies never touches existing
@@ -20,7 +23,14 @@
 --                       date, title, start/end time, optional notes. Shown
 --                       alongside that day's shifts so a user can plan
 --                       around their work schedule.
---   4. Row Level Security (RLS) on every table so that, at the DATABASE
+--   4. `notification_settings` — one row per user: whether shift/activity
+--                       reminders are on, and how many minutes before each
+--                       one fires.
+--   5. `push_subscriptions` — one row per browser/device that has enabled
+--                       push notifications for that user.
+--   6. `notification_log`   — history of reminders actually sent; also
+--                       used to prevent sending the same reminder twice.
+--   7. Row Level Security (RLS) on every table so that, at the DATABASE
 --      layer (not just hidden in the frontend), every user can only ever
 --      see or modify their own rows.
 -- ============================================================================
@@ -157,4 +167,119 @@ create policy "Users can update their own activities"
 drop policy if exists "Users can delete their own activities" on public.activities;
 create policy "Users can delete their own activities"
   on public.activities for delete
+  using (auth.uid() = user_id);
+
+-- ----------------------------------------------------------------------------
+-- 4. notification_settings (V1.4 — Reminder & Notification)
+-- ----------------------------------------------------------------------------
+-- One row per user. Created lazily (upserted) the first time a user opens
+-- Settings → การแจ้งเตือน, with the same defaults shown there: shift
+-- reminder 60 minutes before, activity reminder 30 minutes before, both on.
+create table if not exists public.notification_settings (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  shift_reminder_enabled boolean not null default true,
+  shift_reminder_minutes integer not null default 60,
+  activity_reminder_enabled boolean not null default true,
+  activity_reminder_minutes integer not null default 30,
+  conflict_notification_enabled boolean not null default true,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.notification_settings enable row level security;
+
+drop policy if exists "Users can view their own notification settings" on public.notification_settings;
+create policy "Users can view their own notification settings"
+  on public.notification_settings for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own notification settings" on public.notification_settings;
+create policy "Users can insert their own notification settings"
+  on public.notification_settings for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own notification settings" on public.notification_settings;
+create policy "Users can update their own notification settings"
+  on public.notification_settings for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- ----------------------------------------------------------------------------
+-- 5. push_subscriptions (V1.4)
+-- ----------------------------------------------------------------------------
+-- One row per browser/device the user has enabled notifications on (a
+-- Web Push subscription). `endpoint` is unique per browser installation,
+-- so re-subscribing the same device safely replaces its old row instead
+-- of piling up duplicates.
+create table if not exists public.push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  endpoint text not null unique,
+  p256dh text not null,
+  auth_key text not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists push_subscriptions_user_id_idx on public.push_subscriptions (user_id);
+
+alter table public.push_subscriptions enable row level security;
+
+drop policy if exists "Users can view their own push subscriptions" on public.push_subscriptions;
+create policy "Users can view their own push subscriptions"
+  on public.push_subscriptions for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own push subscriptions" on public.push_subscriptions;
+create policy "Users can insert their own push subscriptions"
+  on public.push_subscriptions for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own push subscriptions" on public.push_subscriptions;
+create policy "Users can update their own push subscriptions"
+  on public.push_subscriptions for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own push subscriptions" on public.push_subscriptions;
+create policy "Users can delete their own push subscriptions"
+  on public.push_subscriptions for delete
+  using (auth.uid() = user_id);
+
+-- ----------------------------------------------------------------------------
+-- 6. notification_log (V1.4)
+-- ----------------------------------------------------------------------------
+-- Records every reminder actually sent — doubles as (a) the "ประวัติการ
+-- แจ้งเตือน" history list shown in Settings, and (b) the de-duplication
+-- guard: the background job that sends reminders inserts a row here
+-- *before* sending, using a `dedup_key` that encodes which shift/activity,
+-- its current start time, and which reminder threshold this is. The
+-- `unique (user_id, dedup_key)` constraint means that if the background
+-- job runs again before the next threshold, or runs twice for the same
+-- moment, the second insert simply fails and no duplicate push is sent.
+-- Editing a shift/activity's time changes its dedup_key (because the time
+-- is part of the key), so an edited item is naturally eligible for a
+-- fresh reminder; a deleted one is never queried again, so its reminder
+-- is never sent.
+create table if not exists public.notification_log (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  dedup_key text not null,
+  kind text not null, -- 'shift' | 'activity' | 'conflict'
+  title text not null,
+  body text not null,
+  sent_at timestamptz not null default now(),
+  unique (user_id, dedup_key)
+);
+
+create index if not exists notification_log_user_id_sent_at_idx
+  on public.notification_log (user_id, sent_at desc);
+
+alter table public.notification_log enable row level security;
+
+-- Read-only from the frontend on purpose: rows are written only by the
+-- trusted background job (using the service-role key, which bypasses RLS
+-- entirely), never by a logged-in user's own browser. A user can see
+-- their own notification history but can't insert/forge or delete it.
+drop policy if exists "Users can view their own notification log" on public.notification_log;
+create policy "Users can view their own notification log"
+  on public.notification_log for select
   using (auth.uid() = user_id);
