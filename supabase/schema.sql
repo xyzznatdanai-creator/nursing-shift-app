@@ -1,5 +1,5 @@
 -- ============================================================================
--- Nursing Shift App — database schema (Phase 1 + V1.1 Shift Management)
+-- Nursing Shift App — database schema (Phase 1 + V1.1 + V1.2 Personal Planning)
 -- ============================================================================
 -- Safe to run this whole file again any time — every statement is
 -- idempotent (create ... if not exists / drop policy if exists), so
@@ -10,13 +10,17 @@
 -- (Dashboard → SQL Editor → New query → paste this whole file → Run).
 --
 -- What this sets up:
---   1. `profiles`  — one row per user, auto-created on sign up.
---   2. `shifts`    — each row is one shift a user entered: date, shift
---                     type, start/end time, optional notes. `shift_type`
---                     is a plain text value (not a fixed enum), so adding
---                     a new shift type later is just adding an entry to
---                     SHIFT_TYPES in the frontend — no migration needed.
---   3. Row Level Security (RLS) on both tables so that, at the DATABASE
+--   1. `profiles`    — one row per user, auto-created on sign up.
+--   2. `shifts`      — each row is one shift a user entered: date, shift
+--                       type, start/end time, optional notes. `shift_type`
+--                       is a plain text value (not a fixed enum), so adding
+--                       a new shift type later is just adding an entry to
+--                       SHIFT_TYPES in the frontend — no migration needed.
+--   3. `activities`  — each row is one personal activity a user entered:
+--                       date, title, start/end time, optional notes. Shown
+--                       alongside that day's shifts so a user can plan
+--                       around their work schedule.
+--   4. Row Level Security (RLS) on every table so that, at the DATABASE
 --      layer (not just hidden in the frontend), every user can only ever
 --      see or modify their own rows.
 -- ============================================================================
@@ -113,4 +117,44 @@ create policy "Users can update their own shifts"
 drop policy if exists "Users can delete their own shifts" on public.shifts;
 create policy "Users can delete their own shifts"
   on public.shifts for delete
+  using (auth.uid() = user_id);
+
+-- ----------------------------------------------------------------------------
+-- 3. activities (V1.2 — Personal Planning)
+-- ----------------------------------------------------------------------------
+create table if not exists public.activities (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  activity_date date not null,
+  title text not null,
+  start_time time not null,
+  end_time time not null,
+  notes text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists activities_user_id_idx on public.activities (user_id);
+create index if not exists activities_user_id_activity_date_idx on public.activities (user_id, activity_date);
+
+alter table public.activities enable row level security;
+
+drop policy if exists "Users can view their own activities" on public.activities;
+create policy "Users can view their own activities"
+  on public.activities for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own activities" on public.activities;
+create policy "Users can insert their own activities"
+  on public.activities for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own activities" on public.activities;
+create policy "Users can update their own activities"
+  on public.activities for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own activities" on public.activities;
+create policy "Users can delete their own activities"
+  on public.activities for delete
   using (auth.uid() = user_id);

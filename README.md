@@ -1,9 +1,10 @@
-# Nursing Shift — Phase 1 + V1.1 (Authentication + Shift Management)
+# Nursing Shift — Phase 1 + V1.1 + V1.2 (Authentication + Shift + Personal Planning)
 
 ระบบจัดการตารางเวรพยาบาล — **Phase 1** วางรากฐานระบบ Authentication และ Cloud
-Database ที่ใช้งานจริงได้ (ไม่ใช่ Demo) ส่วน **V1.1** เพิ่มระบบ "ตารางเวร" ที่
-ให้ผู้ใช้นำตารางเวรจริงของตัวเองมาใช้งานได้ — เพิ่ม/แก้ไข/ลบเวร, มุมมองรายการ
-และปฏิทิน, รองรับเวรข้ามวัน (เช่น 22:00–08:00), และแสดงเวรวันนี้บน Dashboard
+Database ที่ใช้งานจริงได้ (ไม่ใช่ Demo), **V1.1** เพิ่มระบบ "ตารางเวร" ที่ให้
+ผู้ใช้นำตารางเวรจริงของตัวเองมาใช้งานได้, และ **V1.2** เพิ่ม "กิจกรรมส่วนตัว"
+ให้เห็นเวรกับนัดหมายส่วนตัวอยู่ในวันเดียวกัน พร้อม Daily Timeline และการคำนวณ
+เวลาว่างอัตโนมัติ
 
 **Stack:** Next.js (App Router, TypeScript) + Supabase (Postgres + Auth +
 Row Level Security) + Tailwind CSS + Vercel
@@ -37,9 +38,24 @@ Row Level Security) + Tailwind CSS + Vercel
 - Data Security เดิม: ผู้ใช้แต่ละคนเห็น/แก้ไข/ลบได้เฉพาะเวรของตัวเองเท่านั้น
   บังคับที่ระดับฐานข้อมูล (Row Level Security) ไม่ใช่แค่ซ่อนใน Frontend
 
-**ยังไม่ทำ (ตาม Scope ของ V1.1):** AI, Notification/Reminder, ระบบแลกเวร,
-แชร์ตารางเวร, ระบบโรงพยาบาล/ผู้ป่วย, Analytics/Statistics, การวางแผนเวรส่วนตัว,
-คำนวณเงินเดือน, Admin, Payment ฯลฯ — ทั้งหมดนี้รอ Version ถัดไป
+**V1.2 — วางแผนส่วนตัว (Personal Planning)**
+- เพิ่ม / แก้ไข / ลบกิจกรรมส่วนตัว (ชื่อ, วันที่, เวลาเริ่ม-สิ้นสุด, หมายเหตุ)
+  จัดการได้จากมุมมอง "ปฏิทิน" ของหน้าตารางเวร — เลือกวันที่ต้องการแล้วเพิ่มได้เลย
+- ปฏิทินแสดงจุดสีของทั้งเวร (ตามสีประเภทเวร) และกิจกรรม (สีม่วง) ในวันเดียวกัน
+- แผงรายละเอียดวันมี 2 มุมมองย่อย: **รายการ** (แยกส่วนเวร/กิจกรรม/เวลาว่าง) และ
+  **ไทม์ไลน์** (เรียงตามเวลาในวันนั้นเป็นเส้นเดียว เห็นว่าง-ไม่ว่างชัดเจน)
+- คำนวณ "เวลาว่าง" ของแต่ละวันอัตโนมัติจากช่วงที่ไม่มีเวรและไม่มีกิจกรรม
+- เมื่อเพิ่มกิจกรรมในวันที่มีเวร ระบบแสดงเวรของวันนั้นให้เห็นในฟอร์มทันที
+  และเตือน "⚠️ กิจกรรมนี้อยู่ในช่วงเวลาที่มีเวร" ถ้าเวลาที่กรอกชนกับเวร (ไม่บังคับแก้ไข)
+- Dashboard สรุปวันนี้ครบทั้งเวร + กิจกรรม + เวลาว่าง, ข้อความ "วันนี้ไม่มีเวร"
+  เมื่อมีแต่กิจกรรม, และ "วันนี้ยังไม่มีตาราง" เมื่อไม่มีทั้งสองอย่าง
+- Data Security เดิม: กิจกรรมผูกกับ User ID บังคับด้วย Row Level Security เช่นกัน
+- Loading / Success / Error / Empty state ครบทุกการเพิ่ม/แก้ไข/ลบกิจกรรม
+
+**ยังไม่ทำ (ตาม Scope ของ V1.2):** AI, Smart Recommendation, Notification,
+Push Notification, Reminder, ระบบแลกเวร, แชร์ตาราง, Chat, Statistics,
+Analytics, ระบบโรงพยาบาล/ผู้ป่วย, ระบบเงินเดือน, Payment, Subscription,
+Admin System ฯลฯ — ทั้งหมดนี้รอ Version ถัดไป
 
 ---
 
@@ -61,21 +77,23 @@ Row Level Security) + Tailwind CSS + Vercel
 1. ในเมนูซ้ายของ Supabase ไปที่ **SQL Editor → New query**
 2. เปิดไฟล์ [`supabase/schema.sql`](./supabase/schema.sql) ในโปรเจกต์นี้
    คัดลอกทั้งหมดไปวาง แล้วกด **Run**
-3. ตรวจสอบว่ารันสำเร็จ (จะเห็นตาราง `profiles` และ `shifts` ใน **Table Editor**
-   และทั้งสองตารางมี "RLS enabled")
+3. ตรวจสอบว่ารันสำเร็จ (จะเห็นตาราง `profiles`, `shifts` และ `activities` ใน
+   **Table Editor** และทุกตารางมี "RLS enabled")
 
 Schema นี้สร้าง:
 - `profiles` — ข้อมูลบัญชีผู้ใช้ (สร้างอัตโนมัติทุกครั้งที่มีคนสมัครใหม่)
 - `shifts` — ตารางเวรของผู้ใช้ (วันที่, ประเภทเวร, เวลาเริ่ม-สิ้นสุด, หมายเหตุ)
   ใช้งานจริงโดยหน้า "ตารางเวร" (V1.1)
+- `activities` — กิจกรรมส่วนตัวของผู้ใช้ (ชื่อ, วันที่, เวลาเริ่ม-สิ้นสุด,
+  หมายเหตุ) แสดงคู่กับเวรของวันเดียวกัน (V1.2)
 - Policy ที่บังคับว่า `auth.uid() = user_id` เสมอ ทั้งตอนอ่านและเขียน — ทำให้
   User A ไม่สามารถเห็นหรือแก้ไขข้อมูลของ User B ได้แม้จะพยายามเรียก API ตรงๆ
 
-> **อัปเดตจาก Phase 1 เป็น V1.1:** ถ้าโปรเจกต์ Supabase ของคุณรัน
-> `schema.sql` เวอร์ชัน Phase 1 ไปแล้ว ให้เปิด **SQL Editor** แล้วรันไฟล์
+> **อัปเดตจาก Phase 1 / V1.1 เป็น V1.2:** ถ้าโปรเจกต์ Supabase ของคุณรัน
+> `schema.sql` เวอร์ชันก่อนหน้าไปแล้ว ให้เปิด **SQL Editor** แล้วรันไฟล์
 > `schema.sql` เวอร์ชันล่าสุดนี้ซ้ำอีกครั้งได้เลย — เขียนด้วยคำสั่ง
-> `if not exists` ทุกจุด จึงปลอดภัย ไม่ลบข้อมูลเดิม แค่เพิ่มคอลัมน์
-> `start_time` / `end_time` และ Index ที่จำเป็นสำหรับฟีเจอร์ใหม่
+> `if not exists` ทุกจุด จึงปลอดภัย ไม่ลบข้อมูลเดิม แค่เพิ่มตาราง `activities`
+> และ Index ที่จำเป็นสำหรับฟีเจอร์ใหม่
 
 ### ตั้งค่าการยืนยันอีเมล (แนะนำ)
 
@@ -150,13 +168,16 @@ src/
     page.tsx                  → redirect ไป /login หรือ /dashboard ตามสถานะล็อกอิน
     login/page.tsx             → หน้าเข้าสู่ระบบ
     register/page.tsx          → หน้าสมัครบัญชี
-    dashboard/page.tsx         → หน้าหลักหลังล็อกอิน (นาฬิกา + เวรวันนี้)
+    dashboard/page.tsx         → หน้าหลักหลังล็อกอิน (นาฬิกา + สรุปเวร/กิจกรรมวันนี้)
     dashboard/actions.ts        → Server Action สำหรับออกจากระบบ
-    shifts/page.tsx             → หน้าตารางเวร (รายการ + ปฏิทิน)
+    shifts/page.tsx             → หน้าตารางเวร (รายการ + ปฏิทิน + กิจกรรมส่วนตัว)
     shifts/actions.ts           → Server Actions: createShift / updateShift / deleteShift
+    activities/actions.ts       → Server Actions: createActivity / updateActivity / deleteActivity
     auth/callback/route.ts      → รับลิงก์ยืนยันอีเมลจาก Supabase
   components/                  → UI components ที่ใช้ร่วมกัน (AppNav, LiveClock, ...)
   components/shifts/            → UI เฉพาะฟีเจอร์ตารางเวร (List, Calendar, ฟอร์ม, Dialog)
+  components/activities/        → ฟอร์มเพิ่ม/แก้ไขกิจกรรมส่วนตัว
+  components/day/                → แผงรายละเอียดวัน (เวร + กิจกรรม + เวลาว่าง) และ Daily Timeline
   lib/
     supabase/client.ts          → Supabase client ฝั่ง Browser
     supabase/server.ts          → Supabase client ฝั่ง Server
@@ -165,9 +186,10 @@ src/
     db-errors.ts                 → แปล Error จากฐานข้อมูลเป็นภาษาไทย
     shift-types.ts               → รายการประเภทเวร (จุดเดียวที่ต้องแก้เพื่อเพิ่มประเภทใหม่)
     shift-time.ts                 → Helper วันที่/เวลา (Timezone Asia/Bangkok, ตรวจเวรข้ามวัน)
+    day-plan.ts                    → รวมเวร+กิจกรรมของวันเดียวกัน: ตรวจเวลาซ้อน, คำนวณเวลาว่าง, สร้าง Timeline
   proxy.ts                      → รัน updateSession() ทุก request (เดิมเรียกว่า middleware)
 supabase/
-  schema.sql                    → SQL สร้างตาราง + Row Level Security (Phase 1 + V1.1)
+  schema.sql                    → SQL สร้างตาราง + Row Level Security (Phase 1 + V1.1 + V1.2)
 ```
 
 โครงสร้างนี้ถูกจัดวางให้ต่อยอด Version ถัดไปได้ง่าย เช่นการเพิ่มประเภทเวรใหม่

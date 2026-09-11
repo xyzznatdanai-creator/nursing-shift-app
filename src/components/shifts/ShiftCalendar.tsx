@@ -1,15 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  formatTime,
-  formatThaiDate,
-  isOvernightShift,
-  todayInBangkok,
-  type ShiftRow,
-} from "@/lib/shift-time";
+import { todayInBangkok, type ShiftRow } from "@/lib/shift-time";
 import { getShiftTypeDef } from "@/lib/shift-types";
-import ShiftBadge from "./ShiftBadge";
+import type { ActivityRow } from "@/lib/day-plan";
+import DayDetailPanel from "@/components/day/DayDetailPanel";
 
 const WEEKDAY_LABELS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
 const MONTH_LABELS = [
@@ -37,14 +32,22 @@ function isoOf(year: number, month: number, day: number) {
 
 export default function ShiftCalendar({
   shifts,
-  onAddForDate,
-  onEdit,
-  onDeleteRequest,
+  activities,
+  onAddShiftForDate,
+  onEditShift,
+  onDeleteShiftRequest,
+  onAddActivityForDate,
+  onEditActivity,
+  onDeleteActivityRequest,
 }: {
   shifts: ShiftRow[];
-  onAddForDate: (date: string) => void;
-  onEdit: (shift: ShiftRow) => void;
-  onDeleteRequest: (shift: ShiftRow) => void;
+  activities: ActivityRow[];
+  onAddShiftForDate: (date: string) => void;
+  onEditShift: (shift: ShiftRow) => void;
+  onDeleteShiftRequest: (shift: ShiftRow) => void;
+  onAddActivityForDate: (date: string) => void;
+  onEditActivity: (activity: ActivityRow) => void;
+  onDeleteActivityRequest: (activity: ActivityRow) => void;
 }) {
   const today = todayInBangkok();
   const [todayY, todayM] = today.split("-").map(Number);
@@ -62,6 +65,16 @@ export default function ShiftCalendar({
     }
     return map;
   }, [shifts]);
+
+  const activitiesByDate = useMemo(() => {
+    const map = new Map<string, ActivityRow[]>();
+    for (const a of activities) {
+      const arr = map.get(a.activity_date) ?? [];
+      arr.push(a);
+      map.set(a.activity_date, arr);
+    }
+    return map;
+  }, [activities]);
 
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
   const firstWeekday = new Date(viewYear, viewMonth, 1).getDay();
@@ -87,9 +100,8 @@ export default function ShiftCalendar({
     }
   }
 
-  const selectedShifts = (shiftsByDate.get(selectedDate) ?? []).slice().sort((a, b) =>
-    formatTime(a.start_time) < formatTime(b.start_time) ? -1 : 1
-  );
+  const selectedShifts = shiftsByDate.get(selectedDate) ?? [];
+  const selectedActivities = activitiesByDate.get(selectedDate) ?? [];
 
   return (
     <div className="flex flex-col gap-4">
@@ -128,8 +140,21 @@ export default function ShiftCalendar({
           {cells.map((cell, i) => {
             if (!cell) return <div key={`blank-${i}`} />;
             const dayShifts = shiftsByDate.get(cell.iso) ?? [];
+            const dayActivities = activitiesByDate.get(cell.iso) ?? [];
             const isToday = cell.iso === today;
             const isSelected = cell.iso === selectedDate;
+
+            // Up to 4 dots total: shift dots (colored by type) first, then
+            // activity dots (violet) — keeps the cell readable even on a
+            // busy day instead of listing every single item.
+            const dots: Array<{ key: string; className: string }> = [
+              ...dayShifts.map((s) => ({
+                key: `s-${s.id}`,
+                className: getShiftTypeDef(s.shift_type).dotClass,
+              })),
+              ...dayActivities.map((a) => ({ key: `a-${a.id}`, className: "bg-violet-500" })),
+            ].slice(0, 4);
+
             return (
               <button
                 key={cell.iso}
@@ -144,14 +169,12 @@ export default function ShiftCalendar({
                 }`}
               >
                 <span>{cell.day}</span>
-                {dayShifts.length > 0 ? (
+                {dots.length > 0 ? (
                   <span className="flex gap-0.5">
-                    {dayShifts.slice(0, 3).map((s) => (
+                    {dots.map((d) => (
                       <span
-                        key={s.id}
-                        className={`h-1.5 w-1.5 rounded-full ${
-                          isSelected ? "bg-white" : getShiftTypeDef(s.shift_type).dotClass
-                        }`}
+                        key={d.key}
+                        className={`h-1.5 w-1.5 rounded-full ${isSelected ? "bg-white" : d.className}`}
                       />
                     ))}
                   </span>
@@ -164,61 +187,17 @@ export default function ShiftCalendar({
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-900">{formatThaiDate(selectedDate)}</h3>
-          <button
-            type="button"
-            onClick={() => onAddForDate(selectedDate)}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            + เพิ่มเวร
-          </button>
-        </div>
-
-        {selectedShifts.length === 0 ? (
-          <p className="text-sm text-slate-400">ไม่มีเวรวันนี้</p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {selectedShifts.map((shift) => {
-              const overnight = isOvernightShift(shift.start_time, shift.end_time);
-              return (
-                <li
-                  key={shift.id}
-                  className="flex flex-col gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <ShiftBadge shiftType={shift.shift_type} />
-                      <span className="text-xs text-slate-600">
-                        {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
-                        {overnight ? <span className="ml-1 text-indigo-600">🌙</span> : null}
-                      </span>
-                    </div>
-                    {shift.notes ? <div className="text-xs text-slate-500">{shift.notes}</div> : null}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onEdit(shift)}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      แก้ไข
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDeleteRequest(shift)}
-                      className="rounded-lg border border-red-200 bg-white px-3 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
-                    >
-                      ลบ
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
+      <DayDetailPanel
+        selectedDate={selectedDate}
+        dayShifts={selectedShifts}
+        dayActivities={selectedActivities}
+        onAddShift={() => onAddShiftForDate(selectedDate)}
+        onEditShift={onEditShift}
+        onDeleteShift={onDeleteShiftRequest}
+        onAddActivity={() => onAddActivityForDate(selectedDate)}
+        onEditActivity={onEditActivity}
+        onDeleteActivity={onDeleteActivityRequest}
+      />
     </div>
   );
 }

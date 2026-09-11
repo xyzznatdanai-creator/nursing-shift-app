@@ -12,6 +12,14 @@ export default function ShiftList({
 }) {
   const sorted = sortShifts(shifts);
 
+  if (sorted.length === 0) {
+    return (
+      <p className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm text-slate-400">
+        ยังไม่มีเวร — ดูหรือเพิ่มกิจกรรมส่วนตัวได้ที่มุมมองปฏิทิน
+      </p>
+    );
+  }
+
   return (
     <ul className="flex flex-col gap-3">
       {sorted.map((shift) => {
