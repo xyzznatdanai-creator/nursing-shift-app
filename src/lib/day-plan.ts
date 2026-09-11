@@ -37,7 +37,7 @@ export function sortActivities(activities: ActivityRow[]): ActivityRow[] {
 }
 
 /** "08:00" / "08:00:00" -> 480 */
-function toMinutes(time: string): number {
+export function toMinutes(time: string): number {
   const t = formatTime(time);
   const [h, m] = t.split(":").map(Number);
   return h * 60 + m;
@@ -51,13 +51,13 @@ export function minutesToLabel(min: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-interface Interval {
+export interface Interval {
   start: number;
   end: number;
 }
 
 /** A shift's busy interval *for its own `shift_date`* — capped at 24:00. */
-function shiftInterval(shift: ShiftRow): Interval {
+export function shiftInterval(shift: ShiftRow): Interval {
   const start = toMinutes(shift.start_time);
   const end = isOvernightShift(shift.start_time, shift.end_time)
     ? MINUTES_PER_DAY
@@ -66,15 +66,22 @@ function shiftInterval(shift: ShiftRow): Interval {
 }
 
 /** An activity's busy interval for its own `activity_date` — capped at 24:00. */
-function activityInterval(activity: ActivityRow): Interval {
+export function activityInterval(activity: ActivityRow): Interval {
   const start = toMinutes(activity.start_time);
   const rawEnd = toMinutes(activity.end_time);
   const end = rawEnd <= start ? MINUTES_PER_DAY : rawEnd;
   return { start, end: Math.max(end, start) };
 }
 
-function intervalsOverlap(a: Interval, b: Interval): boolean {
+export function intervalsOverlap(a: Interval, b: Interval): boolean {
   return a.start < b.end && b.start < a.end;
+}
+
+/** The overlapping [start,end) of two intervals, or null if they don't overlap. */
+export function intervalIntersection(a: Interval, b: Interval): Interval | null {
+  const start = Math.max(a.start, b.start);
+  const end = Math.min(a.end, b.end);
+  return end > start ? { start, end } : null;
 }
 
 /**

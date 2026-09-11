@@ -4,8 +4,13 @@ import { createClient } from "@/lib/supabase/server";
 import LiveClock from "@/components/LiveClock";
 import AppNav from "@/components/AppNav";
 import ShiftBadge from "@/components/shifts/ShiftBadge";
+import UpcomingSchedule from "@/components/dashboard/UpcomingSchedule";
+import UpcomingActivities from "@/components/dashboard/UpcomingActivities";
 import { formatTime, isOvernightShift, todayInBangkok, type ShiftRow } from "@/lib/shift-time";
 import { computeFreeGaps, minutesToLabel, type ActivityRow } from "@/lib/day-plan";
+import { addDaysISO, buildUpcomingSchedule, summarizeDayConflicts } from "@/lib/schedule-analytics";
+
+const UPCOMING_WINDOW_DAYS = 7;
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -20,29 +25,48 @@ export default async function DashboardPage() {
   }
 
   const today = todayInBangkok();
+  const windowEnd = addDaysISO(today, UPCOMING_WINDOW_DAYS - 1);
 
-  // Row Level Security on both tables means these can only ever return
-  // *this* user's rows — there is no way to see another account's schedule
-  // or plans here.
+  // A single 7-day-window query per table covers "today" AND "what's coming
+  // up" — no need for a separate today-only query, which keeps this page
+  // at exactly 2 database round-trips. Row Level Security means these can
+  // only ever return *this* user's rows.
   const [shiftsResult, activitiesResult] = await Promise.all([
     supabase
       .from("shifts")
       .select("id, shift_date, shift_type, start_time, end_time, notes")
-      .eq("shift_date", today)
+      .gte("shift_date", today)
+      .lte("shift_date", windowEnd)
+      .order("shift_date", { ascending: true })
       .order("start_time", { ascending: true }),
     supabase
       .from("activities")
       .select("id, activity_date, title, start_time, end_time, notes")
-      .eq("activity_date", today)
+      .gte("activity_date", today)
+      .lte("activity_date", windowEnd)
+      .order("activity_date", { ascending: true })
       .order("start_time", { ascending: true }),
   ]);
 
-  const todaysShifts = (shiftsResult.data ?? []) as ShiftRow[];
-  const todaysActivities = (activitiesResult.data ?? []) as ActivityRow[];
+  const windowShifts = (shiftsResult.data ?? []) as ShiftRow[];
+  const windowActivities = (activitiesResult.data ?? []) as ActivityRow[];
   const loadError = shiftsResult.error || activitiesResult.error;
+
+  const todaysShifts = windowShifts.filter((s) => s.shift_date === today);
+  const todaysActivities = windowActivities.filter((a) => a.activity_date === today);
 
   const hasAnything = todaysShifts.length > 0 || todaysActivities.length > 0;
   const freeGaps = hasAnything ? computeFreeGaps(todaysShifts, todaysActivities) : [];
+  const conflictSummary = summarizeDayConflicts(todaysShifts, todaysActivities);
+
+  const upcomingDays = buildUpcomingSchedule(today, windowShifts, UPCOMING_WINDOW_DAYS);
+
+  const shiftsByDate = new Map<string, ShiftRow[]>();
+  for (const s of windowShifts) {
+    const arr = shiftsByDate.get(s.shift_date) ?? [];
+    arr.push(s);
+    shiftsByDate.set(s.shift_date, arr);
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -150,6 +174,19 @@ export default async function DashboardPage() {
                 </div>
               ) : null}
 
+              <div>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  สถานะ
+                </h3>
+                {conflictSummary.level === "none" ? (
+                  <p className="text-sm font-medium text-emerald-700">✓ ไม่มีตารางชนกัน</p>
+                ) : (
+                  <p className="text-sm font-medium text-red-700">
+                    ⚠️ มีตารางชนกัน {conflictSummary.conflictCount} รายการ
+                  </p>
+                )}
+              </div>
+
               {freeGaps.length > 0 ? (
                 <div>
                   <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -171,6 +208,16 @@ export default async function DashboardPage() {
             </div>
           )}
         </section>
+
+        {loadError ? null : (
+          <div className="mt-6 flex flex-col gap-6">
+            <UpcomingSchedule days={upcomingDays} />
+            <UpcomingActivities
+              activities={windowActivities.filter((a) => a.activity_date !== today)}
+              shiftsByDate={shiftsByDate}
+            />
+          </div>
+        )}
       </main>
     </div>
   );

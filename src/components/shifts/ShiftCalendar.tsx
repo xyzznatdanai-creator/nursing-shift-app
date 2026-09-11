@@ -4,7 +4,9 @@ import { useMemo, useState } from "react";
 import { todayInBangkok, type ShiftRow } from "@/lib/shift-time";
 import { getShiftTypeDef } from "@/lib/shift-types";
 import type { ActivityRow } from "@/lib/day-plan";
+import { summarizeDayConflicts } from "@/lib/schedule-analytics";
 import DayDetailPanel from "@/components/day/DayDetailPanel";
+import MonthlyOverview from "./MonthlyOverview";
 
 const WEEKDAY_LABELS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
 const MONTH_LABELS = [
@@ -76,6 +78,23 @@ export default function ShiftCalendar({
     return map;
   }, [activities]);
 
+  const monthShifts = useMemo(
+    () =>
+      shifts.filter((s) => {
+        const [y, m] = s.shift_date.split("-").map(Number);
+        return y === viewYear && m - 1 === viewMonth;
+      }),
+    [shifts, viewYear, viewMonth]
+  );
+  const monthActivities = useMemo(
+    () =>
+      activities.filter((a) => {
+        const [y, m] = a.activity_date.split("-").map(Number);
+        return y === viewYear && m - 1 === viewMonth;
+      }),
+    [activities, viewYear, viewMonth]
+  );
+
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
   const firstWeekday = new Date(viewYear, viewMonth, 1).getDay();
 
@@ -143,6 +162,7 @@ export default function ShiftCalendar({
             const dayActivities = activitiesByDate.get(cell.iso) ?? [];
             const isToday = cell.iso === today;
             const isSelected = cell.iso === selectedDate;
+            const hasConflict = summarizeDayConflicts(dayShifts, dayActivities).level !== "none";
 
             // Up to 4 dots total: shift dots (colored by type) first, then
             // activity dots (violet) — keeps the cell readable even on a
@@ -160,14 +180,20 @@ export default function ShiftCalendar({
                 key={cell.iso}
                 type="button"
                 onClick={() => setSelectedDate(cell.iso)}
-                className={`flex aspect-square flex-col items-center justify-center gap-0.5 rounded-lg text-xs transition-colors ${
+                aria-label={hasConflict ? `${cell.day} มีตารางชนกัน` : String(cell.day)}
+                className={`relative flex aspect-square flex-col items-center justify-center gap-0.5 rounded-lg text-xs transition-colors ${
                   isSelected
                     ? "bg-slate-900 text-white"
                     : isToday
                     ? "border border-slate-900 text-slate-900"
                     : "text-slate-700 hover:bg-slate-100"
-                }`}
+                } ${hasConflict && !isSelected ? "ring-1 ring-inset ring-red-400" : ""}`}
               >
+                {hasConflict ? (
+                  <span className="absolute right-0.5 top-0.5 text-[9px] leading-none" aria-hidden="true">
+                    ⚠️
+                  </span>
+                ) : null}
                 <span>{cell.day}</span>
                 {dots.length > 0 ? (
                   <span className="flex gap-0.5">
@@ -186,6 +212,13 @@ export default function ShiftCalendar({
           })}
         </div>
       </div>
+
+      <MonthlyOverview
+        year={viewYear}
+        month0={viewMonth}
+        monthShifts={monthShifts}
+        monthActivities={monthActivities}
+      />
 
       <DayDetailPanel
         selectedDate={selectedDate}

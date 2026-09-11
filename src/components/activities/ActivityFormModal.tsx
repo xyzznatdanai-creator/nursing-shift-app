@@ -3,7 +3,8 @@
 import { useState, type FormEvent } from "react";
 import { formatTime, formatThaiDate, type ShiftRow } from "@/lib/shift-time";
 import { getShiftTypeDef } from "@/lib/shift-types";
-import { activityOverlapsAnyShift } from "@/lib/day-plan";
+import { minutesToLabel } from "@/lib/day-plan";
+import { checkActivityConflict } from "@/lib/schedule-analytics";
 import { createActivity, updateActivity, type ActivityInput } from "@/app/activities/actions";
 import SubmitButton from "@/components/SubmitButton";
 
@@ -40,8 +41,13 @@ export default function ActivityFormModal({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const overlapsShift =
-    startTime && endTime ? activityOverlapsAnyShift(startTime, endTime, dayShifts) : false;
+  const conflict =
+    startTime && endTime
+      ? checkActivityConflict(
+          { id: "", activity_date: date, title, start_time: startTime, end_time: endTime, notes: null },
+          dayShifts
+        )
+      : { level: "none" as const };
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -180,10 +186,21 @@ export default function ActivityFormModal({
             </div>
           </div>
 
-          {overlapsShift ? (
-            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
-              <span aria-hidden="true">⚠️</span>
-              กิจกรรมนี้อยู่ในช่วงเวลาที่มีเวร
+          {conflict.level === "full" ? (
+            <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-800">
+              <span aria-hidden="true">🔴</span>
+              ซ้อนกับเวร — กิจกรรมนี้อยู่ในช่วงเวลาที่มีเวรทั้งหมด
+              {conflict.overlapStart != null && conflict.overlapEnd != null
+                ? ` (${minutesToLabel(conflict.overlapStart)}–${minutesToLabel(conflict.overlapEnd)})`
+                : ""}
+            </div>
+          ) : conflict.level === "partial" ? (
+            <div className="flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-medium text-orange-800">
+              <span aria-hidden="true">🟠</span>
+              ซ้อนบางส่วนกับเวร
+              {conflict.overlapStart != null && conflict.overlapEnd != null
+                ? ` (${minutesToLabel(conflict.overlapStart)}–${minutesToLabel(conflict.overlapEnd)})`
+                : ""}
             </div>
           ) : null}
 

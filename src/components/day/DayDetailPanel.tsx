@@ -2,13 +2,8 @@
 
 import { useState } from "react";
 import { formatThaiDate, formatTime, isOvernightShift, type ShiftRow } from "@/lib/shift-time";
-import {
-  activityOverlapsAnyShift,
-  buildDailyTimeline,
-  computeFreeGaps,
-  minutesToLabel,
-  type ActivityRow,
-} from "@/lib/day-plan";
+import { buildDailyTimeline, computeFreeGaps, minutesToLabel, type ActivityRow } from "@/lib/day-plan";
+import { checkActivityConflict, summarizeDayConflicts } from "@/lib/schedule-analytics";
 import ShiftBadge from "@/components/shifts/ShiftBadge";
 import DailyTimeline from "./DailyTimeline";
 
@@ -45,6 +40,7 @@ export default function DayDetailPanel({
 
   const shiftTypeByBlockId = new Map(dayShifts.map((s) => [s.id, s.shift_type]));
   const timelineBlocks = buildDailyTimeline(dayShifts, dayActivities);
+  const conflictSummary = summarizeDayConflicts(dayShifts, dayActivities);
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -71,6 +67,19 @@ export default function DayDetailPanel({
           </button>
         </div>
       </div>
+
+      {dayShifts.length > 0 || dayActivities.length > 0 ? (
+        <p className="mb-3 text-xs text-slate-500">
+          วันนี้มีเวร {dayShifts.length} รายการ · กิจกรรม {dayActivities.length} รายการ ·{" "}
+          {conflictSummary.level === "none" ? (
+            <span className="font-medium text-emerald-700">✓ ไม่มีตารางชนกัน</span>
+          ) : (
+            <span className="font-medium text-red-700">
+              ⚠️ มีตารางชนกัน {conflictSummary.conflictCount} รายการ
+            </span>
+          )}
+        </p>
+      ) : null}
 
       {subView === "timeline" ? (
         <DailyTimeline blocks={timelineBlocks} shiftTypeByBlockId={shiftTypeByBlockId} />
@@ -149,11 +158,7 @@ export default function DayDetailPanel({
             ) : (
               <ul className="flex flex-col gap-2">
                 {sortedActivities.map((activity) => {
-                  const overlaps = activityOverlapsAnyShift(
-                    activity.start_time,
-                    activity.end_time,
-                    dayShifts
-                  );
+                  const conflict = checkActivityConflict(activity, dayShifts);
                   return (
                     <li
                       key={activity.id}
@@ -167,9 +172,19 @@ export default function DayDetailPanel({
                           <span className="text-xs text-slate-600">
                             {formatTime(activity.start_time)} – {formatTime(activity.end_time)}
                           </span>
-                          {overlaps ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
-                              ⚠️ ซ้อนกับเวร
+                          {conflict.level === "full" ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-800">
+                              🔴 ซ้อนกับเวร
+                              {conflict.overlapStart != null && conflict.overlapEnd != null
+                                ? ` ${minutesToLabel(conflict.overlapStart)}–${minutesToLabel(conflict.overlapEnd)}`
+                                : ""}
+                            </span>
+                          ) : conflict.level === "partial" ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-semibold text-orange-800">
+                              🟠 ซ้อนบางส่วน
+                              {conflict.overlapStart != null && conflict.overlapEnd != null
+                                ? ` ${minutesToLabel(conflict.overlapStart)}–${minutesToLabel(conflict.overlapEnd)}`
+                                : ""}
                             </span>
                           ) : null}
                         </div>
